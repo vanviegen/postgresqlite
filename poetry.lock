@@ -1,0 +1,48 @@
+[[package]]
+name = "asn1crypto"
+version = "1.5.1"
+description = "Fast ASN.1 parser and serializer with definitions for private keys, public keys, certificates, CRL, OCSP, CMS, PKCS#3, PKCS#7, PKCS#8, PKCS#12, PKCS#5, X.509 and TSP"
+category = "main"
+optional = false
+python-versions = "*"
+
+[[package]]
+name = "pg8000"
+version = "1.24.1"
+description = "PostgreSQL interface library"
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+scramp = ">=1.4.1"
+
+[[package]]
+name = "scramp"
+version = "1.4.1"
+description = "An implementation of the SCRAM protocol."
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+asn1crypto = ">=1.4.0"
+
+[metadata]
+lock-version = "1.1"
+python-versions = "^3.10"
+content-hash = "027843e14dc41eeb07367fcb477bed9de951f7fd6b01c66fcdca220bcf2e4716"
+
+[metadata.files]
+asn1crypto = [
+    {file = "asn1crypto-1.5.1-py2.py3-none-any.whl", hash = "sha256:db4e40728b728508912cbb3d44f19ce188f218e9eba635821bb4b68564f8fd67"},
+    {file = "asn1crypto-1.5.1.tar.gz", hash = "sha256:13ae38502be632115abf8a24cbe5f4da52e3b5231990aff31123c805306ccb9c"},
+]
+pg8000 = [
+    {file = "pg8000-1.24.1-py3-none-any.whl", hash = "sha256:7eb6f78630f3116cc77e1a49abed6d1a542751b69666cf51a3188b7f94d2c908"},
+    {file = "pg8000-1.24.1.tar.gz", hash = "sha256:291222c5ddfd66a3fc0d321700cf591c8b0f930d2fc848777d6cfcff55443ce6"},
+]
+scramp = [
+    {file = "scramp-1.4.1-py3-none-any.whl", hash = "sha256:93c9cc2ffe54a451e02981c07a5a23cbd830701102789939cfb4ff91efd6ca8c"},
+    {file = "scramp-1.4.1.tar.gz", hash = "sha256:f964801077be9be2a1416ffe255d2d78834b3d9d5c8ce5d28f76a856f209f70e"},
+]
