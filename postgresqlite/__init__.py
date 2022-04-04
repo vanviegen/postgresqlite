@@ -1,20 +1,32 @@
 import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, tarfile
 
 
-def connect(dirname="data/postgresqlite"):
+def connect(dirname="data/postgresqlite", sqlite_compatible=True):
     """Start a server (if needed), wait for it, and return a dbapi compatible object.
-    This requires pg8000 to be installed."""
+    
+    Args:
+        dirname (str): The directory where the configuration file (`postgresqlite.json`)
+            will be read or created, and where database files will be stored. If the
+            path does not exist, it will be created.
+        sqlite_compatible (bool): When set, a few (superficial) changes are made to the
+            exposed DB-API to make it resemble the Python `sqlite3` API more closely.
+            The README provides more details.
+    """
     import pg8000.dbapi
 
-    pg8000.dbapi.paramstyle = "qmark"
+    if sqlite_compatible:
+        pg8000.dbapi.paramstyle = "qmark"
 
-    pg8000.dbapi.Connection.execute = _conn_execute
-    pg8000.dbapi.Cursor._fetchone = pg8000.dbapi.Cursor.fetchone
-    pg8000.dbapi.Cursor.fetchall = _cursor_fetchall
-    pg8000.dbapi.Cursor.fetchone = _cursor_fetchone
+        pg8000.dbapi.Connection.execute = _conn_execute
+        pg8000.dbapi.Cursor._fetchone = pg8000.dbapi.Cursor.fetchone
+        pg8000.dbapi.Cursor.fetchall = _cursor_fetchall
+        pg8000.dbapi.Cursor.fetchone = _cursor_fetchone
 
     config = get_config(dirname)
-    return pg8000.dbapi.connect(user=config.user, password=config.password, unix_sock=config.expand_path(config.socket))
+    connection = pg8000.dbapi.connect(user=config.user, password=config.password, unix_sock=config.socket)
+    if sqlite_compatible:
+        connection.autocommit = True
+    return connection
 
 
 def _conn_execute(self, query, *args):
@@ -59,13 +71,30 @@ def _cursor_fetchall(self):
 
 
 def get_uri(dirname="data/postgresqlite", driver="pg8000"):
-    """Start a server (if needed), wait for it, and return a connection URL."""
-    config = get_config(dirname)
-    return f"postgresql{'+'+driver if driver else ''}://{config.user}:{config.password}@localhost:{config.port}/{config.database}"
+    """Start a server (if needed), wait for it, and return a connection URL.    
+    Args:
+        dirname (str): The directory where the configuration file (`postgresqlite.json`)
+            will be read or created, and where database files will be stored. If the
+            path does not exist, it will be created.
+        driver (str): The URI may include a driver part (`postgresql+DRIVER://user:pwd@host/db`),
+            which we'll set to `pg8000` by default. This parameter allows you to specify a 
+            different direct, or leave it out (by providing `None`).
+    """
+    get_config(dirname).get_uri(driver)
 
 
 def get_config(dirname="data/postgresqlite"):
-    """Start a server (if needed), wait for it, and return the config object."""
+    """Start a server (if needed), wait for it, and return the config object. If the 
+    PostgreSQL server is in autostart mode (which is the default), it will be kept
+    running until some time after the calling process (and any other processes that
+    depend on this server) have terminated.
+    
+    Args:
+        dirname (str): The directory where the configuration file (`postgresqlite.json`)
+            will be read or created, and where database files will be stored. If the
+            path does not exist, it will be created.
+
+    """
     os.makedirs(dirname, exist_ok=True)
 
     config = Config(dirname)
@@ -80,10 +109,9 @@ def get_config(dirname="data/postgresqlite"):
             exit(1)
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.connect(config.expand_path(config.socket))
+                client.connect(config.socket)
                 break
         except FileNotFoundError:
-            print(config.expand_path(config.socket))
             pass
         count += 1
         if count==3:
@@ -203,7 +231,12 @@ class Config:
         return os.path.normpath(os.path.join(self.directory, os.path.expanduser(path)))    
 
     def get_socket(config):
-        return f".s.PGSQL.{config.port}"
+        if config.autostart:
+            return config.expand_path(f".s.PGSQL.{config.port}")
+
+    def get_uri(config, driver=None):
+        return f"postgresql{'+'+driver if driver else ''}://{config.user}:{config.password}@localhost:{config.port}/{config.database}"
+
 
 
 def _run_server(daemon_fd, log_fd, config):
@@ -277,7 +310,7 @@ def _run_server(daemon_fd, log_fd, config):
         try:
             proc.wait(10)
             print(f"PostgreSQLite shutdown successfull", file=log_fd, flush=True)
-        except TimeoutExpired:
+        except subprocess.TimeoutExpired:
             print(f"PostgreSQLite killing server", file=log_fd, flush=True)
             proc.kill()
             proc.wait()
@@ -315,18 +348,3 @@ def _run_as_daemon(daemon_callback):
     daemon_callback()
     sys.exit(0)
 
-
-if __name__ == "__main__":
-    config = get_config()
-
-    if len(sys.argv)==2 and sys.argv[1] == "psql":
-        subprocess.run([
-            "psql",
-            "-h", config.directory,
-            "-p", str(config.port),
-            "-U", config.user,
-        ], env=dict(os.environ, PGPASSWORD=config.password))
-    else:
-        url = f"postgresql://{config.user}:{config.password}@localhost:{config.port}/{config.database}"
-        print(f"Opening client for {url}...")
-        subprocess.run(["xdg-open", url], env=os.environ)
