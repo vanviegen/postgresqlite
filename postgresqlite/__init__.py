@@ -1,11 +1,11 @@
-import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, tarfile
+import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib, tarfile
 
 
 def connect(dirname="data/postgresqlite", sqlite_compatible=True):
     """Start a server (if needed), wait for it, and return a dbapi compatible object.
     
     Args:
-        dirname (str): The directory where the configuration file (`postgresqlite.json`)
+        dirname (str): The dir where the configuration file (`postgresqlite.json`)
             will be read or created, and where database files will be stored. If the
             path does not exist, it will be created.
         sqlite_compatible (bool): When set, a few (superficial) changes are made to the
@@ -73,14 +73,14 @@ def _cursor_fetchall(self):
 def get_uri(dirname="data/postgresqlite", driver="pg8000"):
     """Start a server (if needed), wait for it, and return a connection URL.    
     Args:
-        dirname (str): The directory where the configuration file (`postgresqlite.json`)
+        dirname (str): The dir where the configuration file (`postgresqlite.json`)
             will be read or created, and where database files will be stored. If the
             path does not exist, it will be created.
         driver (str): The URI may include a driver part (`postgresql+DRIVER://user:pwd@host/db`),
             which we'll set to `pg8000` by default. This parameter allows you to specify a 
             different direct, or leave it out (by providing `None`).
     """
-    get_config(dirname).get_uri(driver)
+    return get_config(dirname).get_uri(driver)
 
 
 def get_config(dirname="data/postgresqlite"):
@@ -90,7 +90,7 @@ def get_config(dirname="data/postgresqlite"):
     depend on this server) have terminated.
     
     Args:
-        dirname (str): The directory where the configuration file (`postgresqlite.json`)
+        dirname (str): The dir where the configuration file (`postgresqlite.json`)
             will be read or created, and where database files will be stored. If the
             path does not exist, it will be created.
 
@@ -99,13 +99,15 @@ def get_config(dirname="data/postgresqlite"):
 
     config = Config(dirname)
 
-    if config.autostart:
-        _auto_start(config)
+    if not config.autostart:
+        return config
+
+    _auto_start(config)
 
     count = 0
     while True:
-        if not os.path.exists(config.expand_path(config.directory+"/locks/daemon.lock")):
-            print(f"\nPostgreSQL server failed to start - check {config.directory}/postgresqlite.log", file=sys.stderr)
+        if not os.path.exists(config.expand_path(config.dir+"/locks/daemon.lock")):
+            print(f"\nPostgreSQL server failed to start - check {config.dir}/postgresqlite.log", file=sys.stderr)
             exit(1)
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
@@ -126,21 +128,27 @@ def get_config(dirname="data/postgresqlite"):
 
 
 def _download_server(config):
-    if os.path.exists(config.expand_path(config.postgres_bin)):
+    if os.path.exists(config.exp_postgres_bin):
         return
-    bin_dir = config.expand_path(config.bin_directory)
-    os.makedirs(bin_dir, exist_ok=True)
+    os.makedirs(config.exp_pg_dir, exist_ok=True)
 
-    print(f"Downloading PostgreSQL {config.postgresql_version}")
+    print(f"Downloading PostgreSQL {config.postgresql_version}..", file=sys.stderr)
 
     url = f"https://github.com/vanviegen/postgresqlite/releases/download/libs/standalone-postgresql-{config.postgresql_version}.tar.gz"
-    url_stream = urllib.request.urlopen(url)
-    tar_stream = tarfile.open(fileobj=url_stream, mode="r|gz")
-    tar_stream.extractall(path=bin_dir)
+    try:
+        url_stream = urllib.request.urlopen(url)
+        tar_stream = tarfile.open(fileobj=url_stream, mode="r|gz")
+        tar_stream.extractall(path=config.exp_pg_dir)
+    except urllib.error.HTTPError as err:
+        print(f"Failed to download {url}: {err}")
+
+    if not os.path.exists(config.exp_postgres_bin):
+        print(f"Download and extract to {config.exp_pg_dir} failed.", file=sys.stderr)
+        sys.exit(1)
 
 
 def _auto_start(config):
-    lockdir = config.directory+"/locks"
+    lockdir = config.dir+"/locks"
     os.makedirs(lockdir, exist_ok=True)
 
     daemon_file = lockdir + "/daemon.lock"
@@ -156,20 +164,20 @@ def _auto_start(config):
     else:
         _download_server(config)
 
-        log_fd = open(config.directory+"/postgresqlite.log", "w")
+        log_fd = open(config.dir+"/postgresqlite.log", "w")
 
-        if not os.path.exists(config.directory+"/pgdata/postgresql.conf"):
-            print("Initializing new PostgreSQL data directory..", file=sys.stderr)
-            password_file = config.directory+"/password.txt"
+        if not os.path.exists(config.dir+"/pgdata/postgresql.conf"):
+            print("Initializing new PostgreSQL data dir..", file=sys.stderr)
+            password_file = config.dir+"/password.txt"
             with open(password_file, "w") as file:
                 file.write(config.password)
             
             subprocess.run([
-                config.expand_path(config.initdb_bin),
-                '-D', config.directory+"/pgdata",
+                config.exp_initdb_bin,
+                '-D', config.dir+"/pgdata",
                 '-U', config.user,
                 f'--pwfile={password_file}'
-            ], env=dict(os.environ, LD_LIBRARY_PATH=config.expand_path(config.bin_directory)+"/system-lib"), check=True, stderr=log_fd, stdout=log_fd)
+            ], check=True, stderr=log_fd, stdout=log_fd)
 
             os.remove(password_file)
 
@@ -186,21 +194,21 @@ def _make_random_word(length=12):
 
 
 class Config:
-    def __init__(self, directory=None):
-        if directory==None:
-            directory = "data/postgresqlite"
+    def __init__(self, dir=None):
+        if dir==None:
+            dir = "data/postgresqlite"
 
         self.autostart = True
         self.expire_seconds = 180
-        self.bin_cache_directory = "~/.cache/postgresqlite"
-        self.postgresql_version = "13.6"
+        self.pg_cache_dir = "~/.cache/postgresqlite"
+        self.postgresql_version = "14.3"
         self.user = "postgres"
         self.password = _make_random_word()
         self.port = random.randint(32768,60999)
         self.host = "localhost"
         self.database = "postgres"
 
-        config_file = directory+"/postgresqlite.json"
+        config_file = dir+"/postgresqlite.json"
         try:
             with open(config_file) as file:
                 for key,val in json.load(file).items():
@@ -211,24 +219,26 @@ class Config:
                 json.dump(self.__dict__, file)
 
         # Create full paths (before we may daemonize)
-        self.directory = os.path.realpath(directory)
+        self.dir = os.path.realpath(dir)
 
     def __getattr__(self, name):
-        if "get_"+name not in dir(self):
-            raise AttributeError(name)
-        return getattr(self, "get_"+name)()
+        if "get_"+name in dir(self):
+            return getattr(self, "get_"+name)()
+        if name.startswith("exp_") and "get_"+name[4:] in dir(self):
+            return self.expand_path(getattr(self, "get_"+name[4:])())
+        raise AttributeError(name)
 
-    def get_bin_directory(self):
-        return f"{self.bin_cache_directory}/{self.postgresql_version}"
+    def get_pg_dir(self):
+        return f"{self.pg_cache_dir}/{self.postgresql_version}"
 
     def get_postgres_bin(self):
-        return f"{self.bin_directory}/bin/postgres"
+        return f"{self.pg_dir}/bin/postgres"
 
     def get_initdb_bin(self):
-        return f"{self.bin_directory}/bin/initdb"
+        return f"{self.pg_dir}/bin/initdb"
 
     def expand_path(self, path):
-        return os.path.normpath(os.path.join(self.directory, os.path.expanduser(path)))    
+        return os.path.normpath(os.path.join(self.dir, os.path.expanduser(path)))
 
     def get_socket(config):
         if config.autostart:
@@ -241,17 +251,17 @@ class Config:
 
 def _run_server(daemon_fd, log_fd, config):
 
-    lockdir = config.directory+"/locks"
+    lockdir = config.dir+"/locks"
     proc = None
 
     try:
         proc = subprocess.Popen([
-            config.expand_path(config.postgres_bin),
-            "-c", f"dynamic_library_path={config.expand_path(config.bin_directory)}/lib",
-            "-D", config.directory+"/pgdata",
+            config.exp_postgres_bin,
+            "-c", f"dynamic_library_path={config.exp_pg_dir}/lib",
+            "-D", config.dir+"/pgdata",
             "-p", str(config.port),
-            f"--unix_socket_directories={config.directory}"
-        ], env=dict(os.environ, LD_LIBRARY_PATH=config.expand_path(config.bin_directory)+"/system-lib"), stderr=log_fd, stdout=log_fd)
+            f"--unix_socket_directories={config.dir}"
+        ], stderr=log_fd, stdout=log_fd)
 
         no_client_time = 0
         last_client_count = -1
@@ -265,14 +275,14 @@ def _run_server(daemon_fd, log_fd, config):
                         locked_by_me = True
                     continue
                 with open(pathname) as fd:
-                    client_count += 1 
                     try:
                         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB) # Non blocking
                         os.unlink(pathname) # File no longer locked
-                        print(f"PostgreSQLite removed {pathname}", file=log_fd, flush=True)
+                        print(f"PostgreSQLite removed {pathname} as it was no longer locked", file=log_fd, flush=True)
 
                     except OSError:
                         pass # File is still locked
+                        client_count += 1
 
             if not locked_by_me:
                 print("PostgreSQLite shutting down server as {lockdir}/daemon.lock has gone...", file=log_fd, flush=True)

@@ -192,8 +192,8 @@ When PostgreSQLite is first started (for a certain directory), a configuration f
 
 These fields are only relevant when `autostart` is true:
 - `expire_seconds` (int): The time in seconds after which a server is shutdown when there are no active clients anymore.
-- `bin_cache_directory` (str): The directory into which PostgreSQL will be installed and from which it will be ran.
-- `postgresql_version` (str): The version of PostgreSQL to use. Currently only `"13.6"` is supported.
+- `pg_cache_dir` (str): The directory into which PostgreSQL will be installed and from which it will be ran.
+- `postgresql_version` (str): The version of PostgreSQL to use. Currently only `"14.3"` is supported.
 
 
 ### The autostart mechanism

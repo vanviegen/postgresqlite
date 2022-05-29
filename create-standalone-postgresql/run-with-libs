@@ -1,0 +1,5 @@
+#!/bin/sh
+
+BASEDIR=$(dirname "$0")
+exec "$BASEDIR"/../slib/ld-linux-x86-64.so.2 --library-path "$BASEDIR"/../slib --argv0 "$0" "$0".real "$@"
+
