@@ -113,7 +113,7 @@ def get_config(dirname="data/postgresqlite"):
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.connect(config.socket)
                 break
-        except FileNotFoundError:
+        except (FileNotFoundError, ConnectionRefusedError):
             pass
         count += 1
         if count==3:
@@ -185,6 +185,7 @@ def _auto_start(config):
         _run_as_daemon(lambda: _run_server(daemon_fd, log_fd, config))
 
     client_file = lockdir + "/" + _make_random_word()
+    global client_fd # to make sure the GC doesn't close our file
     client_fd = open(client_file, "w")
     fcntl.flock(client_fd, fcntl.LOCK_EX)
 
@@ -276,6 +277,7 @@ def _run_server(daemon_fd, log_fd, config):
                     continue
                 with open(pathname) as fd:
                     try:
+                        time.sleep(0.2) # Give the creator of the file a chance to lock before we do
                         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB) # Non blocking
                         os.unlink(pathname) # File no longer locked
                         print(f"PostgreSQLite removed {pathname} as it was no longer locked", file=log_fd, flush=True)
