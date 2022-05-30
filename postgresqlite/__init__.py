@@ -134,7 +134,7 @@ def _download_server(config):
 
     print(f"Downloading PostgreSQL {config.postgresql_version}..", file=sys.stderr)
 
-    url = f"https://github.com/vanviegen/postgresqlite/releases/download/libs/standalone-postgresql-{config.postgresql_version}.tar.gz"
+    url = f"https://github.com/vanviegen/postgresqlite/releases/download/libs/standalone-postgresql-{config.postgresql_version}-{os.uname().sysname}-{os.uname().machine}.tar.gz"
     try:
         url_stream = urllib.request.urlopen(url)
         tar_stream = tarfile.open(fileobj=url_stream, mode="r|gz")

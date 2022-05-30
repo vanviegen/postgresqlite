@@ -9,6 +9,6 @@ RUN cp $(ldd /usr/sbin/postgres | cut -c 2- | cut -f 3 -d " ") /target/slib
 RUN cp -n $(ldd /usr/sbin/initdb | cut -c 2- | cut -f 3 -d " ") /target/slib
 RUN cp -r /usr/lib/postgresql /target/lib
 RUN cp -r /usr/share/postgresql /target/share
-RUN tar czf /standalone-postgresql-$(postgres --version | cut -d ' ' -f 3).tar.gz -C target .
+RUN tar czf /standalone-postgresql-$(postgres --version | cut -d ' ' -f 3)-$(uname -s)-$(uname -m).tar.gz -C target .
 RUN rm -rf /target
 
