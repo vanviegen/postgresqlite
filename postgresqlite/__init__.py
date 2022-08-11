@@ -1,4 +1,4 @@
-import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib, tarfile
+import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, urllib.error, tarfile
 
 
 def connect(dirname="data/postgresqlite", sqlite_compatible=True):
