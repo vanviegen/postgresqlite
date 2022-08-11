@@ -215,6 +215,7 @@ class Config:
         self.port = random.randint(32768,60999)
         self.host = "localhost"
         self.database = "postgres"
+        self.socket_id = ''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase, k=8))
 
         config_file = dir+"/postgresqlite.json"
         try:
@@ -223,8 +224,8 @@ class Config:
                     setattr(self, key, val)
         except FileNotFoundError:
             print(f"Creating new configuration at {config_file}..", file=sys.stderr)
-            with open(config_file, "w") as file:
-                json.dump(self.__dict__, file)
+        with open(config_file, "w") as file:
+            json.dump(self.__dict__, file)
 
         # Create full paths (before we may daemonize)
         self.dir = os.path.realpath(dir)
@@ -248,9 +249,15 @@ class Config:
     def expand_path(self, path):
         return os.path.normpath(os.path.join(self.dir, os.path.expanduser(path)))
 
-    def get_socket(config):
-        if config.autostart:
-            return config.expand_path(f".s.PGSQL.{config.port}")
+    def get_socket_dir(self):
+        if self.autostart:
+            # Placing the socket in de postgresqlite data dir may cause problems, as the path name
+            # may exceed 107 characters.
+            return f"/tmp/postgresqlite-{self.socket_id}"
+
+    def get_socket(self):
+        if self.autostart:
+            return f"{self.socket_dir}/.s.PGSQL.{self.port}"
 
     def get_uri(config, driver=None):
         return f"postgresql{'+'+driver if driver else ''}://{config.user}:{config.password}@localhost:{config.port}/{config.database}"
@@ -274,6 +281,8 @@ def _run_server(daemon_fd, log_fd, config):
 
     lockdir = config.dir+"/locks"
     proc = None
+    
+    os.makedirs(config.socket_dir, exist_ok=True)
 
     try:
         proc = subprocess.Popen([
@@ -281,7 +290,7 @@ def _run_server(daemon_fd, log_fd, config):
             "-c", f"dynamic_library_path={config.exp_pg_dir}/lib",
             "-D", config.dir+"/pgdata",
             "-p", str(config.port),
-            f"--unix_socket_directories={config.dir}"
+            f"--unix_socket_directories={config.socket_dir}"
         ], stderr=log_fd, stdout=log_fd)
 
         no_client_time = 0
@@ -346,6 +355,11 @@ def _run_server(daemon_fd, log_fd, config):
             print(f"PostgreSQLite killing server", file=log_fd, flush=True)
             proc.kill()
             proc.wait()
+
+    try:
+        os.rmdir(config.socket_dir)
+    except:
+        print(f"Couldn't delete {config.socket_dir}", file=log_fd, flush=True)
 
     log_fd.close()
 
