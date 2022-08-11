@@ -1,7 +1,7 @@
 import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, urllib.error, tarfile
 
 
-def connect(dirname="data/postgresqlite", sqlite_compatible=True):
+def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
     """Start a server (if needed), wait for it, and return a dbapi compatible object.
     
     Args:
@@ -11,6 +11,8 @@ def connect(dirname="data/postgresqlite", sqlite_compatible=True):
         sqlite_compatible (bool): When set, a few (superficial) changes are made to the
             exposed DB-API to make it resemble the Python `sqlite3` API more closely.
             The README provides more details.
+        config (Config | None): An object obtained through `get_config()` can be given
+            to configure the connection. This causes `dirname` to be ignored.
     """
     import pg8000.dbapi
 
@@ -22,7 +24,7 @@ def connect(dirname="data/postgresqlite", sqlite_compatible=True):
         pg8000.dbapi.Cursor.fetchall = _cursor_fetchall
         pg8000.dbapi.Cursor.fetchone = _cursor_fetchone
 
-    config = get_config(dirname)
+    config = config or get_config(dirname)
     connection = pg8000.dbapi.connect(user=config.user, password=config.password, unix_sock=config.socket)
     if sqlite_compatible:
         connection.autocommit = True
