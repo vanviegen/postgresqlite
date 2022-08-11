@@ -23,6 +23,7 @@ def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
         pg8000.dbapi.Cursor._fetchone = pg8000.dbapi.Cursor.fetchone
         pg8000.dbapi.Cursor.fetchall = _cursor_fetchall
         pg8000.dbapi.Cursor.fetchone = _cursor_fetchone
+        pg8000.dbapi.Cursor.__iter__ = _cursor_iter
 
     config = config or get_config(dirname)
     connection = pg8000.dbapi.connect(user=config.user, password=config.password, unix_sock=config.socket)
@@ -56,6 +57,8 @@ class DictRow(list):
 
 
 def _cursor_fetchone(self):
+    if self.description is None:
+        return None
     lookup = _create_lookup_dict(self.description)
     row = self._fetchone()
     if row:
@@ -63,13 +66,15 @@ def _cursor_fetchone(self):
 
 
 def _cursor_fetchall(self):
-    results = []
+    return list(self)
+
+
+def _cursor_iter(self):
+    if self.description is None:
+        return
     lookup = _create_lookup_dict(self.description)
-    while True:
-        result = self._fetchone()
-        if result==None:
-            return results
-        results.append(DictRow(result,lookup))
+    while (row := self._fetchone()) is not None:
+        yield DictRow(row, lookup)
 
 
 def get_uri(dirname="data/postgresqlite", driver="pg8000"):
