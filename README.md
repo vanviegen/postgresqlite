@@ -139,7 +139,7 @@ Returns a `Config` object, that includes (among others) the following attributes
 - `host` (string): Database host name. (Can be `None`.)
 - `database` (string): Database name.
 - `socket` (string): Database UNIX domain socket. (Can be `None`.)
-
+- `env` (dict): A dictionary containing `PGHOST`, `PGPORT`, `PGDATABASE`, `PGSOCKET`, `PGUSER`, `PGPASSWORD` and `PGURI` keys with their appropriate values.
 
 #### `postgresqlite.get_uri(dirname='data/postgresqlite', driver='pg8000')`
 Start a server (if needed), wait for it, and return a connection URL.

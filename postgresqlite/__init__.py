@@ -35,8 +35,8 @@ def _conn_execute(self, query, *args):
     return cursor
 
 
-def _create_lookup_dict(descr):
-    return {info[0]: index for index, info in enumerate(descr)}
+def _create_lookup_dict(description):
+    return {info[0]: index for index, info in enumerate(description)}
         
 
 class DictRow(list):
@@ -248,6 +248,19 @@ class Config:
     def get_uri(config, driver=None):
         return f"postgresql{'+'+driver if driver else ''}://{config.user}:{config.password}@localhost:{config.port}/{config.database}"
 
+    def get_env(self):
+        env = dict(
+            PGHOST = self.host,
+            PGPORT = self.port,
+            PGSOCKET = self.socket,
+            PGDATABASE = self.database,
+            PGUSER = self.user,
+            PGPASSWORD = self.password,
+            PGURI = self.uri,
+        )
+        for k,v in env.items():
+            env[k] = '' if v==None else str(v)
+        return env
 
 
 def _run_server(daemon_fd, log_fd, config):
