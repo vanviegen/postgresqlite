@@ -5,7 +5,7 @@ Python module that gives you the power of a PostgreSQL server, with the convenie
 ## Features
 
 - Using just a `postgresqlite.connect()` call, the library will automatically...
-    - Download and install PostgreSQL into the user's `~/.cache` directory. (Linux EM64T only for now.)
+    - Download and install PostgreSQL into the user's `~/.cache` directory. (Linux and macOS EM64T only, for now.)
     - Create a new database (`initdb`) within the project directory with a random password.
     - Start the PostgreSQL server.
     - Set up a DB-API connection to the server (using the `pg8000` driver).
@@ -120,8 +120,9 @@ http http://127.0.0.1:5000/cars
 Start a server (if needed), wait for it, and return a DB-API compatible object.
  
 Arguments:
-- dirname (str): The directory where the configuration file (`postgresqlite.json`) will be read or created, and where database files will be stored. If the path does not exist, it will be created.
-- sqlite_compatible (bool): When set, a few (superficial) changes are made to the exposed DB-API to make it resemble the Python `sqlite3` API more closely, as described in the *Features* section.
+- dirname (str, defaults to `data/postgresqlite`): The directory where the configuration file (`postgresqlite.json`) will be read or created, and where database files will be stored. If the path does not exist, it will be created.
+- sqlite_compatible (bool, defaults to `True`): When set, a few (superficial) changes are made to the exposed DB-API to make it resemble the Python `sqlite3` API more closely, as described in the *Features* section.
+- config (Config object, defaults to `None`): This can be an object returned by `get_config`. When `None`, the `connect` method will create a default configuration.
 
 Returns a [DB-API compatible connection object](https://peps.python.org/pep-0249/#connection-objects).
 
@@ -189,6 +190,7 @@ When PostgreSQLite is first started (for a certain directory), a configuration f
 - `database` (int): Database name.
 - `user` (str): Connection user name.
 - `password` (str): Connection password name (optional).
+- `socket_id` (str): A (random) string that distinguishes this instance of PostgreSQLite, for creating the PostgreSQL unix socket file in `/tmp`.
 
 These fields are only relevant when `autostart` is true:
 - `expire_seconds` (int): The time in seconds after which a server is shutdown when there are no active clients anymore.
