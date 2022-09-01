@@ -16,7 +16,7 @@ def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
     """
     import pg8000.dbapi
 
-    if sqlite_compatible:
+    if sqlite_compatible and pg8000.dbapi.Cursor.fetchall != _cursor_fetchall:
         pg8000.dbapi.paramstyle = "qmark"
 
         pg8000.dbapi.Connection.execute = _conn_execute
@@ -171,7 +171,7 @@ def _auto_start(config):
     else:
         _download_server(config)
 
-        log_fd = open(config.dir+"/postgresqlite.log", "w")
+        log_fd = open(config.dir+"/postgresqlite.log", "a")
 
         if not os.path.exists(config.dir+"/pgdata/postgresql.conf"):
             print("Initializing new PostgreSQL data dir..", file=sys.stderr)
@@ -278,6 +278,8 @@ class Config:
 
 
 def _run_server(daemon_fd, log_fd, config):
+    sys.stdout = log_fd
+    sys.stderr = log_fd
 
     lockdir = config.dir+"/locks"
     proc = None
@@ -350,7 +352,7 @@ def _run_server(daemon_fd, log_fd, config):
         proc.terminate()
         try:
             proc.wait(10)
-            print(f"PostgreSQLite shutdown successfull", file=log_fd, flush=True)
+            print(f"PostgreSQLite shutdown successful", file=log_fd, flush=True)
         except subprocess.TimeoutExpired:
             print(f"PostgreSQLite killing server", file=log_fd, flush=True)
             proc.kill()
@@ -378,8 +380,11 @@ def _run_as_daemon(daemon_callback):
 
     # Decouple from parent environment
     os.chdir("/")
-    os.setsid(  )
+    os.setsid()
     os.umask(0)
+    sys.stdout.close()
+    sys.stderr.close()
+    sys.stdin.close()
 
     # Do second fork
     try:
@@ -391,6 +396,8 @@ def _run_as_daemon(daemon_callback):
         print(f"fork #2 failed: {e.errno} (e.strerror)", file=sys.stderr)
         sys.exit(1)
 
-    daemon_callback()
+    try:
+        daemon_callback()
+    except Exception:
+        pass
     sys.exit(0)
-
