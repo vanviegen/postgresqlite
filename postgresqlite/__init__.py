@@ -1,4 +1,4 @@
-import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, urllib.error, tarfile
+import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, urllib.error, tarfile, pg8000, pg8000.dbapi, glob
 
 
 def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
@@ -14,8 +14,6 @@ def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
         config (Config | None): An object obtained through `get_config()` can be given
             to configure the connection. This causes `dirname` to be ignored.
     """
-    import pg8000.dbapi
-
     if sqlite_compatible and pg8000.dbapi.Cursor.fetchall != _cursor_fetchall:
         pg8000.dbapi.paramstyle = "qmark"
 
@@ -171,7 +169,7 @@ def _auto_start(config):
     else:
         _download_server(config)
 
-        log_fd = open(config.dir+"/postgresqlite.log", "a")
+        log_fd = open(config.dir+"/postgresqlite.log", "a", buffering=1)
 
         if not os.path.exists(config.dir+"/pgdata/postgresql.conf"):
             print("Initializing new PostgreSQL data dir..", file=sys.stderr)
@@ -189,7 +187,7 @@ def _auto_start(config):
             os.remove(password_file)
 
         print("Starting PostgreSQL..", file=sys.stderr)
-        _run_as_daemon(lambda: _run_server(daemon_fd, log_fd, config))
+        _run_as_daemon(lambda: _run_server(daemon_fd, log_fd, config), keep_fds={daemon_fd,log_fd}, change_cwd=False)
 
     client_file = lockdir + "/" + _make_random_word()
     global client_fd # to make sure the GC doesn't close our file
@@ -278,8 +276,8 @@ class Config:
 
 
 def _run_server(daemon_fd, log_fd, config):
-    sys.stdout = log_fd
-    sys.stderr = log_fd
+    sys.stdout = sys.stderr = log_fd
+    print("PostgreSQL daemon is starting..")
 
     lockdir = config.dir+"/locks"
     proc = None
@@ -348,7 +346,7 @@ def _run_server(daemon_fd, log_fd, config):
         pass
     daemon_fd.close()
 
-    if proc:
+    if proc != None:
         proc.terminate()
         try:
             proc.wait(10)
@@ -359,45 +357,52 @@ def _run_server(daemon_fd, log_fd, config):
             proc.wait()
 
     try:
+        for filename in glob.glob(config.socket_dir + "/.s.PGSQL.*"):
+            os.unlink(filename)
         os.rmdir(config.socket_dir)
-    except:
-        print(f"Couldn't delete {config.socket_dir}", file=log_fd, flush=True)
+    except Exception as e:
+        print(f"Couldn't delete {config.socket_dir}", e, file=log_fd, flush=True)
 
     log_fd.close()
 
 
-def _run_as_daemon(daemon_callback):
+def _run_as_daemon(daemon_callback, keep_fds=set(), change_cwd=True):
     # Do the Unix double-fork magic; see Stevens's book "Advanced
     # Programming in the UNIX Environment" (Addison-Wesley) for details
-    try:
-        pid = os.fork()
-        if pid > 0:
-            # Return the original process
-            return
-    except OSError as e:
-        print(f"fork #1 failed: {e.errno} ({e.strerror})", file=sys.stderr)
-        sys.exit(1)
+    pid = os.fork()
+    if pid > 0:
+        # Return the original process
+        return
 
     # Decouple from parent environment
-    os.chdir("/")
+    if change_cwd:
+        os.chdir("/")
     os.setsid()
     os.umask(0)
-    sys.stdout.close()
-    sys.stderr.close()
-    sys.stdin.close()
+
+    keep_fds = {fd if type(fd)==int else fd.fileno() for fd in keep_fds}
+    for file in [sys.stdout, sys.stderr, sys.stdin]:
+        try:
+            if file.fileno() not in keep_fds:
+                file.close()
+        except:
+            pass
+    for fd in range(1024):
+        if fd not in keep_fds:
+            try:
+                os.close(fd)
+            except:
+                pass
 
     # Do second fork
-    try:
-        pid = os.fork()
-        if pid > 0:
-            # Exit from second parent; print eventual PID before exiting
-            sys.exit(0)
-    except OSError as e:
-        print(f"fork #2 failed: {e.errno} (e.strerror)", file=sys.stderr)
-        sys.exit(1)
+    pid = os.fork()
+    if pid > 0:
+        # Exit from second parent; print eventual PID before exiting
+        sys.exit(0)
 
     try:
         daemon_callback()
-    except Exception:
-        pass
+    except Exception as e:
+        # Make sure an exception is not caught by _run_as_daemon's caller
+        print(traceback.format_exc(), file=sys.stderr, flush=True)
     sys.exit(0)
