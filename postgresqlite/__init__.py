@@ -24,8 +24,22 @@ def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
         pg8000.dbapi.Cursor.__iter__ = _cursor_iter
 
     config = config or get_config(dirname)
-    connection = pg8000.dbapi.connect(user=config.user, password=config.password, unix_sock=config.socket)
+
+    retries = 0
+    while True:
+        try:
+            connection = pg8000.dbapi.connect(user=config.user, password=config.password, unix_sock=config.socket)
+            connection.cursor().execute('SELECT 1')
+        except Exception as e:
+            if 'the database system is starting up' not in str(e) or retries >= 50:
+                raise e
+            retries += 1
+            time.sleep(0.2)
+            continue
+        break
+        
     if sqlite_compatible:
+        connection.cursor().execute('COMMIT')
         connection.autocommit = True
     return connection
 

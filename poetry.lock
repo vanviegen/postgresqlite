@@ -30,8 +30,8 @@ asn1crypto = ">=1.4.0"
 
 [metadata]
 lock-version = "1.1"
-python-versions = "^3.10"
-content-hash = "027843e14dc41eeb07367fcb477bed9de951f7fd6b01c66fcdca220bcf2e4716"
+python-versions = "^3.7"
+content-hash = "8743f3155421f0106314958c68f50f43099838a3a9c9ebe78806c1813f61c999"
 
 [metadata.files]
 asn1crypto = [
