@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "postgresqlite"
-version = "0.2.16"
+version = "0.3.0"
 description = "Python package that gives you the power of a PostgreSQL server, with the convenience of the sqlite3 package."
 authors = ["Frank van Viegen <pp@vanviegen.net>"]
 readme = "README.md"
@@ -23,3 +23,5 @@ pg8000 = "^1.24.1"
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.poetry.scripts]
+postgresqlite = 'postgresqlite:main'

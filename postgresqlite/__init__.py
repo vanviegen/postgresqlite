@@ -1,27 +1,136 @@
 import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, urllib.error, tarfile, pg8000, pg8000.dbapi, glob
 
 
-def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
-    """Start a server (if needed), wait for it, and return a dbapi compatible object.
+class FriendlyConnection(pg8000.dbapi.Connection):
+    def cursor(self):
+        return FriendlyCursor(self)
+
+    def execute(self, *args, **kwargs):
+        cursor = self.cursor()
+        cursor.execute(*args, **kwargs)
+        return cursor
+
+    def query(self, sql, **kwparams):
+        cursor = self.cursor()
+        result = cursor.query(sql, **kwparams)
+        cursor.close()
+        return result
+
+    def query_row(self, sql, **kwparams):
+        cursor = self.cursor()
+        result = cursor.query_row(sql, **kwparams)
+        cursor.close()
+        return result
+
+    def query_value(self, sql, **kwparams):
+        cursor = self.cursor()
+        result = cursor.query_value(sql, **kwparams)
+        cursor.close()
+        return result
+
+    def query_column(self, sql, **kwparams):
+        cursor = self.cursor()
+        result = cursor.query_column(sql, **kwparams)
+        cursor.close()
+        return result
+
+
+class FriendlyCursor(pg8000.dbapi.Cursor):
+    def execute(self, *args, **kwargs):
+        self._lookup = None
+        org_paramstyle = pg8000.dbapi.paramstyle
+        pg8000.dbapi.paramstyle = self._c._paramstyle
+        try:
+            super().execute(*args, **kwargs)
+            if self.description:
+                self._lookup = {info[0]: index for index, info in enumerate(self.description)}
+        finally:
+            pg8000.dbapi.paramstyle = org_paramstyle
+
+    def __next__(self):
+        data = super().__next__()
+        return FriendlyRow(data, self._lookup)
+
+    def query(self, sql, **kwparams):
+        self.execute(sql, kwparams)
+        if self._lookup:
+            return [row for row in self]
+
+    def query_row(self, sql, **kwparams):
+        self.execute(sql, kwparams)
+        if not self._lookup:
+            raise pg8000.dbapi.ProgrammingError("query should return data")
+        if self.rowcount > 1:
+            raise pg8000.dbapi.ProgrammingError("at most a single result row was expected")
+        return self.fetchone()
+
+    def query_value(self, sql, **kwparams):
+        row = self.query_row(sql, **kwparams)
+        if len(self.description) != 1:
+            raise pg8000.dbapi.ProgrammingError("a single result column was expected")
+        if row:
+            return row[0]
+
+    def query_column(self, sql, **kwparams):
+        self.execute(sql, kwparams)
+        if not self._lookup:
+            raise pg8000.dbapi.ProgrammingError("query should return data")
+        if len(self.description) != 1:
+            raise pg8000.dbapi.ProgrammingError("a single result column was expected")
+        return [row[0] for row in self]
+
+    def __str__(self):
+        return f"<FriendlyCursor rowcount={self.rowcount} columns={list(self._create_lookup_dict())}>"
+
+
+class FriendlyRow:
+    def __init__(self, data, lookup):
+        self._data = data
+        self._lookup = lookup
+
+    def __getitem__(self, key):
+        if type(key)==str:
+            key = self._lookup[key]
+        return self._data[key]
+
+    def __getattr__(self, key):
+        return self._data[self._lookup[key]]
+
+    def __str__(self):
+        return "<FriendlyRow " + ' '.join([str(key)+"="+repr(self._data[index]) for key,index in self._lookup.items()]) + ">"
+
+    def keys(self):
+        return self._lookup.keys()
+
+    def __len__(self):
+        return len(self._lookup)
+
+
+def connect(dirname="data/postgresqlite", mode='friendly', config=None):
+    """Start a server (if needed), wait for it, and return a dbapi-compatible object.
     
     Args:
         dirname (str): The dir where the configuration file (`postgresqlite.json`)
             will be read or created, and where database files will be stored. If the
             path does not exist, it will be created.
-        sqlite_compatible (bool): When set, a few (superficial) changes are made to the
-            exposed DB-API to make it resemble the Python `sqlite3` API more closely.
-            The README provides more details.
+        mode ('easy', 'sqlite', 'dbapi'): When set to 'dbapi', the created connection
+            will be a plain PG8000 DB-API Connection. When set to 'sqlite3', a few
+            (superficial) additions are added on top of the DB-API to make it resemble the
+            Python `sqlite3` API more closely:
+            - `Connection` objects have an `execute` method that creates a new cursor and 
+              runs the given query on it.
+            - Row objects can be indexed using numeric indexes as well as column names,
+              just like (like with `connection.row_factory = sqlite3.Row` for `sqlite3`).
+            - Autocommit mode is enabled by default.
+            - Parameterized queries use `?` as a placeholder. (`paramstyle = 'qmark'`)
+            When the mode is set to `friendly` (the default):
+            - All of the `sqlite3` additions mentioned above apply.
+            - Parameterized queries use `:my_param`-style placeholders. (`paramstyle = 'named'`)
+            - `Connection` and `Cursor` objects have `query`, `query_row`, `query_column` and
+              `query_value` methods, as documented in the `README.md`.
         config (Config | None): An object obtained through `get_config()` can be given
             to configure the connection. This causes `dirname` to be ignored.
     """
-    if sqlite_compatible and pg8000.dbapi.Cursor.fetchall != _cursor_fetchall:
-        pg8000.dbapi.paramstyle = "qmark"
-
-        pg8000.dbapi.Connection.execute = _conn_execute
-        pg8000.dbapi.Cursor._fetchone = pg8000.dbapi.Cursor.fetchone
-        pg8000.dbapi.Cursor.fetchall = _cursor_fetchall
-        pg8000.dbapi.Cursor.fetchone = _cursor_fetchone
-        pg8000.dbapi.Cursor.__iter__ = _cursor_iter
 
     config = config or get_config(dirname)
 
@@ -37,56 +146,16 @@ def connect(dirname="data/postgresqlite", sqlite_compatible=True, config=None):
             time.sleep(0.2)
             continue
         break
-        
-    if sqlite_compatible:
-        connection.cursor().execute('COMMIT')
+
+    # End the transaction started by `SELECT 1`
+    connection.cursor().execute('COMMIT')
+
+    if mode != 'dbapi':        
+        connection.__class__ = FriendlyConnection
         connection.autocommit = True
+        connection._paramstyle = "qmark" if mode == 'sqlite3' else 'named'
+
     return connection
-
-
-def _conn_execute(self, query, *args):
-    cursor = self.cursor()
-    cursor.execute(query, *args)
-    return cursor
-
-
-def _create_lookup_dict(description):
-    return {info[0]: index for index, info in enumerate(description)}
-        
-
-class DictRow(list):
-    def __init__(self, row, lookup):
-        super().__init__(row)
-        self._lookup = lookup
-
-    def __getitem__(self,key):
-        if type(key)==str:
-            key = self._lookup[key]
-        return super().__getitem__(key)
-
-    def __str__(self):
-        return str({key: list.__getitem__(self, index) for key,index in self._lookup.items()})
-
-
-def _cursor_fetchone(self):
-    if self.description is None:
-        return None
-    lookup = _create_lookup_dict(self.description)
-    row = self._fetchone()
-    if row:
-        return DictRow(row, lookup)
-
-
-def _cursor_fetchall(self):
-    return list(self)
-
-
-def _cursor_iter(self):
-    if self.description is None:
-        return
-    lookup = _create_lookup_dict(self.description)
-    while (row := self._fetchone()) is not None:
-        yield DictRow(row, lookup)
 
 
 def get_uri(dirname="data/postgresqlite", driver="pg8000"):
@@ -420,3 +489,20 @@ def _run_as_daemon(daemon_callback, keep_fds=set(), change_cwd=True):
         # Make sure an exception is not caught by _run_as_daemon's caller
         print(traceback.format_exc(), file=sys.stderr, flush=True)
     sys.exit(0)
+
+
+def main():
+    directory = None
+    cmd = sys.argv[1:]
+    if len(cmd) >= 2 and cmd[0]=="-d":
+        config = get_config(cmd[1])
+        cmd = cmd[2:]
+    else:
+        config = get_config()
+    cmd = cmd or ["psql"]
+
+    if len(cmd) == 1 and '$PG' in cmd[0]:
+        cmd = ["sh", "-c", cmd[0]]
+
+    subprocess.run(cmd, env=os.environ|config.env)
+

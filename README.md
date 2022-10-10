@@ -21,7 +21,34 @@ Python module that gives you the power of a PostgreSQL server, with the convenie
 
 ## Examples
 
-### Using the API directly
+### Using DB-API directly
+
+```sh
+pip install postgresqlite
+```
+
+```python
+import postgresqlite
+
+db = postgresqlite.connect(mode='dbapi')
+
+cursor = db.cursor()
+cursor.execute('create table if not exists tests(id serial, info text not null, created_at timestamp not null default current_timestamp)')
+cursor.execute("insert into tests(info) values('Hi mom!'),('This is great!')")
+db.commit()
+
+cursor.execute("select id, info, created_at from tests where id=%s", [1])
+for row in cursor:
+    print("row:", row, "id:", row[0], "created_at:", row[2])
+
+cursor.execute("select count(*) from tests")
+print("count:", cursor.fetchone()[0])
+
+cursor.execute("select * from tests order by id desc limit 1")
+print("row:", cursor.fetchone())
+```
+
+### Using the `FriendlyConnection` API
 
 ```sh
 pip install postgresqlite
@@ -32,14 +59,16 @@ import postgresqlite
 
 db = postgresqlite.connect()
 
-db.execute('create table if not exists tests(id serial, info text not null, created_at timestamp not null default current_timestamp)')
-db.execute("insert into tests(info) values('Hi mom!'),('This is great!')")
+db.query('create table if not exists tests(id serial, info text not null, created_at timestamp not null default current_timestamp)')
+db.query("insert into tests(info) values('Hi mom!'),('This is great!')")
 
-rows = db.execute("select * from tests where id=?", [1]).fetchall()
+rows = db.query("select * from tests where id=:id", id=1)
 for row in rows:
-    print("Row:", row, row[0], row['created_at'])
+    print("row:", row, "id:", row.id, "created_at:", row.created_at)
 
-print("Count:", db.execute("select count(*) from tests").fetchone())
+print("count:", db.query_value("select count(*) from tests"))
+
+print("last row:", db.query_row("select * from tests order by id desc limit 1"))
 ```
 
 ### Using Flask-SQLAlchemy
@@ -96,9 +125,12 @@ def new_rental():
     db.session.commit()
     return flask.jsonify(rental.to_dict())
 
+# Create tables based on the Model classes above.
+with app.app_context():
+    db.create_all()
+
 if __name__ == '__main__':
-   db.create_all()
-   app.run(debug = True)
+    app.run(debug = True)
 ```
 
 Running this should expose a REST API. If you have [httpie](https://httpie.io/) installed, it can be tested from the command like this:
@@ -115,14 +147,30 @@ http http://127.0.0.1:5000/cars
 
 ### API functions
 
-#### `postgresqlite.connect(dirname='data/postgresqlite', sqlite_compatible=True)`
+#### `postgresqlite.connect(dirname='data/postgresqlite', mode='friendly', config=None)`
 
 Start a server (if needed), wait for it, and return a DB-API compatible object.
- 
+
+Arguments:
+- `dirname` (str): The dir where the configuration file (`postgresqlite.json`)
+    will be read or created, and where database files will be stored. If the
+    path does not exist, it will be created.
+- `mode` ('easy', 'sqlite', 'dbapi'): 
+  - When set to `friendly` (the default), a `FriendlyConnection` object is returned. It's a DB-API compatible Connection, but with a few additions to make it more programmer-friendly, as documented in the [The FriendlyConnection object](#the-friendlyconnection-object)-section.
+  - When set to 'dbapi', the created connection will be a plain PG8000 DB-API Connection.
+  - When set to 'sqlite3', a few (superficial) additions are added on top of the DB-API to make it resemble the Python `sqlite3` API more closely:
+    - `Connection` objects have an `execute` method that creates a new cursor and 
+        runs the given query on it.
+    - Row objects can be indexed using numeric indexes as well as column names,
+        just like (like with `connection.row_factory = sqlite3.Row` for `sqlite3`).
+    - Autocommit mode is enabled by default.
+    - Parameterized queries use `?` as a placeholder. (`paramstyle = 'qmark'`)
+- `config` (Config | None): An object obtained through `get_config()` can be given to configure the connection. This causes `dirname` to be ignored.
+
 Arguments:
 - dirname (str, defaults to `data/postgresqlite`): The directory where the configuration file (`postgresqlite.json`) will be read or created, and where database files will be stored. If the path does not exist, it will be created.
 - sqlite_compatible (bool, defaults to `True`): When set, a few (superficial) changes are made to the exposed DB-API to make it resemble the Python `sqlite3` API more closely, as described in the *Features* section.
-- config (Config object, defaults to `None`): This can be an object returned by `get_config`. When `None`, the `connect` method will create a default configuration.
+- config (`Config` object, defaults to `None`): This can be an object returned by `get_config`. When `None`, the `connect` method will create a default configuration.
 
 Returns a [DB-API compatible connection object](https://peps.python.org/pep-0249/#connection-objects).
 
@@ -148,6 +196,60 @@ Start a server (if needed), wait for it, and return a connection URL.
 Arguments:
 - dirname (str): The directory where the configuration file (`postgresqlite.json`) will be read or created, and where database files will be stored. If the path does not exist, it will be created.
 - driver (str): The URI may include a driver part (`postgresql+DRIVER://user:pwd@host/db`), which we'll set to `pg8000` by default. This parameter allows you to specify a different direct, or leave it out (by providing `None`).
+
+### The `FriendlyConnection` object
+
+By default the `postgresqlite.connect` method will return a `FriendlyConnection`, which is a DB-API compatible `Connection` object, but with a few programmer-friendly differences:
+
+- Row objects can be indexed using column names as well as column indexes. For example `row['name']` instead of `row[0]`. In addition, attribute syntax can be used, like `row.name`.
+- Autocommit mode is enabled by default.
+- Query parameters are in `:named` style.
+
+Besides, those changes, the `FriendlyConnection` object offers a couple of additional methods:
+
+#### execute(sql: str, params: dict = {})
+
+Create a new `Cursor`, execute the given `sql` with the given `params` dictionary on that cursor, and return the `Cursor`. Example:
+
+```python
+row = db.execute('select * from test where id=:id', {'id': 123})).fetchone()`
+```
+
+#### query(sql, param1=.., param2=..)
+
+Execute the `sql` with the given parameters, returning a list of `FriendlyRow` objects. Example:
+
+```python
+rows = db.query('select id, name from test where name=:name', name='Ivo')
+print(len(rows), rows[0].id) # 3 123
+```
+
+#### query_row(sql, param1=.., param2=..)
+
+Execute the `sql` with the given parameters, returning a single `FriendlyRow` object or `None` (if no rows were returned). If the query results in more than one row, an exception is thrown. Example:
+
+```python
+row = db.query_row('select id, name from test where id=:id', id=123)
+print(row.id, row.name) # 123 Ivo
+```
+
+#### query_column(sql, param1=.., param2=..)
+
+Execute the `sql` with the given parameters, returning a list of values. If the query results in more than one column, an exception is thrown. Example:
+
+```python
+test_ids = db.query_column('select id from test where name=:name', name='Ivo')
+print(test_ids) # [123, 456, 789]
+```
+
+#### query_value(sql, param1=.., param2=..)
+
+Execute the `sql` with the given parameters, returning a single value. If the query results in more than one column or more than one row, an exception is thrown. Example:
+
+```python
+test_id = db.query_value('select id from test where name=:name limit 1', name='Ivo')
+print(test_id) # 123
+```
 
 
 ### CLI interface
