@@ -504,5 +504,6 @@ def main():
     if len(cmd) == 1 and '$PG' in cmd[0]:
         cmd = ["sh", "-c", cmd[0]]
 
-    subprocess.run(cmd, env=os.environ|config.env)
-
+    env = dict(os.environ)
+    env.update(config.env)
+    subprocess.run(cmd, env=env)
