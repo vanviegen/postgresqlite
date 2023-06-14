@@ -1,4 +1,4 @@
-import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, urllib.error, tarfile, pg8000, pg8000.dbapi, glob
+import os, string, random, json, sys, subprocess, fcntl, time, traceback, socket, urllib.request, urllib.error, tarfile, pg8000, pg8000.dbapi, glob, re
 
 
 class FriendlyConnection(pg8000.dbapi.Connection):
@@ -35,15 +35,49 @@ class FriendlyConnection(pg8000.dbapi.Connection):
         return result
 
 
+error_start_marker = "\u001b[31m"
+error_end_marker = "\u001b[0m"
+
+def get_exception_message(query, args, org_exception):
+    msg = str(org_exception)
+    
+    match_m = re.search("'M': '((\\\\.|[^'])+)'", msg) # message
+    if match_m:
+        match_h = re.search("'H': '((\\\\.|[^'])+)'", msg) # hint
+        match_p = re.search("'P': '((\\\\.|[^'])+)'", msg) # position
+        msg = match_m.group(1)
+        msg = msg[0].upper() + msg[1:] + "."
+        if match_h:
+            msg += f"\nHint: {match_h.group(1)}"
+        if match_p and match_p.group(1).isdigit():
+            # Make the error position in the query red
+            start_pos = int(match_p.group(1))-1
+            match_word = re.search('^[a-zA-Z_.]+|[^a-zA-Z_.]+', query[start_pos:])
+            if match_word and match_word.group(0).strip():
+                end_pos = start_pos + len(match_word.group(0))
+            else:
+                query = query[:start_pos] + "⚠" + query[start_pos:]
+                end_pos = start_pos + 1
+            query = query[0:start_pos] + error_start_marker  + query[start_pos:end_pos] + error_end_marker + query[end_pos:]
+
+    msg = f"{msg}\nFor query:\n\t" + query.replace("\n","\n\t")
+    if args:
+        msg += f"\nWith arguments: {args}"
+    return msg
+
+
 class FriendlyCursor(pg8000.dbapi.Cursor):
-    def execute(self, *args, **kwargs):
+    def execute(self, sql, params={}):
         self._lookup = None
         org_paramstyle = pg8000.dbapi.paramstyle
         pg8000.dbapi.paramstyle = self._c._paramstyle
         try:
-            super().execute(*args, **kwargs)
+            super().execute(sql, params)
             if self.description:
                 self._lookup = {info[0]: index for index, info in enumerate(self.description)}
+        except Exception as e:
+            msg = get_exception_message(sql, params, e)
+            raise type(e)(msg) from None
         finally:
             pg8000.dbapi.paramstyle = org_paramstyle
 

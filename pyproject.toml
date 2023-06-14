@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "postgresqlite"
-version = "0.3.1"
+version = "0.4.2"
 description = "Python package that gives you the power of a PostgreSQL server, with the convenience of the sqlite3 package."
 authors = ["Frank van Viegen <pp@vanviegen.net>"]
 readme = "README.md"

@@ -204,6 +204,7 @@ By default the `postgresqlite.connect` method will return a `FriendlyConnection`
 - Row objects can be indexed using column names as well as column indexes. For example `row['name']` instead of `row[0]`. In addition, attribute syntax can be used, like `row.name`.
 - Autocommit mode is enabled by default.
 - Query parameters are in `:named` style.
+- Exceptions are instances of `SQLError` and contain easy to read error messages, highlighting the offending part of the query.
 
 Besides, those changes, the `FriendlyConnection` object offers a couple of additional methods:
 
