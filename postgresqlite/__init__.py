@@ -67,12 +67,12 @@ def get_exception_message(query, args, org_exception):
 
 
 class FriendlyCursor(pg8000.dbapi.Cursor):
-    def execute(self, sql, params={}):
+    def execute(self, sql, params={}, **kwargs):
         self._lookup = None
         org_paramstyle = pg8000.dbapi.paramstyle
         pg8000.dbapi.paramstyle = self._c._paramstyle
         try:
-            super().execute(sql, params)
+            super().execute(sql, params, **kwargs)
             if self.description:
                 self._lookup = {info[0]: index for index, info in enumerate(self.description)}
         except Exception as e:
