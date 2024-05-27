@@ -304,6 +304,12 @@ def _auto_start(config):
             os.remove(password_file)
 
         print("Starting PostgreSQL..", file=sys.stderr)
+        try:
+            import pydevd
+            print("Unable to start the PostgreSQL server when running within the Python debugger. When running your program for the first time in a while, please do so without the debugger. (Ctrl-F5 in VSCode)")
+            sys.exit(1)
+        except ImportError:
+            pass
         _run_as_daemon(lambda: _run_server(daemon_fd, log_fd, config), keep_fds={daemon_fd,log_fd}, change_cwd=False)
 
     client_file = lockdir + "/" + _make_random_word()
