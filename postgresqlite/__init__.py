@@ -140,7 +140,7 @@ class FriendlyRow:
         return len(self._lookup)
 
 
-def connect(dirname="data/postgresqlite", mode='friendly', config=None):
+def connect(dirname="data/postgresqlite", mode='friendly', config=None) -> FriendlyConnection:
     """Start a server (if needed), wait for it, and return a dbapi-compatible object.
     
     Args:
@@ -184,7 +184,7 @@ def connect(dirname="data/postgresqlite", mode='friendly', config=None):
     # End the transaction started by `SELECT 1`
     connection.cursor().execute('COMMIT')
 
-    if mode != 'dbapi':        
+    if mode != 'dbapi':
         connection.__class__ = FriendlyConnection
         connection.autocommit = True
         connection._paramstyle = "qmark" if mode == 'sqlite3' else 'named'
