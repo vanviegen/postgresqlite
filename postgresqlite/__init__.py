@@ -38,6 +38,7 @@ class FriendlyConnection(pg8000.dbapi.Connection):
 error_start_marker = "\u001b[31m"
 error_end_marker = "\u001b[0m"
 
+
 def get_exception_message(query, args, org_exception):
     msg = str(org_exception)
     
@@ -66,57 +67,6 @@ def get_exception_message(query, args, org_exception):
     return msg
 
 
-class FriendlyCursor(pg8000.dbapi.Cursor):
-    def execute(self, sql, params={}, **kwargs):
-        self._lookup = None
-        org_paramstyle = pg8000.dbapi.paramstyle
-        pg8000.dbapi.paramstyle = self._c._paramstyle
-        try:
-            super().execute(sql, params, **kwargs)
-            if self.description:
-                self._lookup = {info[0]: index for index, info in enumerate(self.description)}
-        except Exception as e:
-            msg = get_exception_message(sql, params, e)
-            raise type(e)(msg) from None
-        finally:
-            pg8000.dbapi.paramstyle = org_paramstyle
-
-    def __next__(self):
-        data = super().__next__()
-        return FriendlyRow(data, self._lookup)
-
-    def query(self, sql, **kwparams):
-        self.execute(sql, kwparams)
-        if self._lookup:
-            return [row for row in self]
-
-    def query_row(self, sql, **kwparams):
-        self.execute(sql, kwparams)
-        if not self._lookup:
-            raise pg8000.dbapi.ProgrammingError("query should return data")
-        if self.rowcount > 1:
-            raise pg8000.dbapi.ProgrammingError("at most a single result row was expected")
-        return self.fetchone()
-
-    def query_value(self, sql, **kwparams):
-        row = self.query_row(sql, **kwparams)
-        if len(self.description) != 1:
-            raise pg8000.dbapi.ProgrammingError("a single result column was expected")
-        if row:
-            return row[0]
-
-    def query_column(self, sql, **kwparams):
-        self.execute(sql, kwparams)
-        if not self._lookup:
-            raise pg8000.dbapi.ProgrammingError("query should return data")
-        if len(self.description) != 1:
-            raise pg8000.dbapi.ProgrammingError("a single result column was expected")
-        return [row[0] for row in self]
-
-    def __str__(self):
-        return f"<FriendlyCursor rowcount={self.rowcount} columns={list(self._create_lookup_dict())}>"
-
-
 class FriendlyRow:
     def __init__(self, data, lookup):
         self._data = data
@@ -138,6 +88,55 @@ class FriendlyRow:
 
     def __len__(self):
         return len(self._lookup)
+
+
+class FriendlyCursor(pg8000.dbapi.Cursor):
+    def execute(self, sql, params={}, **kwargs):
+        self._lookup = None
+        org_paramstyle = pg8000.dbapi.paramstyle
+        pg8000.dbapi.paramstyle = self._c._paramstyle
+        try:
+            super().execute(sql, params, **kwargs)
+            if self.description:
+                self._lookup = {info[0]: index for index, info in enumerate(self.description)}
+        except Exception as e:
+            msg = get_exception_message(sql, params, e)
+            raise type(e)(msg) from None
+        finally:
+            pg8000.dbapi.paramstyle = org_paramstyle
+
+    def __next__(self):
+        data = super().__next__()
+        return FriendlyRow(data, self._lookup)
+
+    def query(self, sql, **kwparams) -> list[FriendlyRow]:
+        self.execute(sql, kwparams)
+        return list(self) if self._lookup else None # type: ignore
+
+    def query_row(self, sql, **kwparams):
+        self.execute(sql, kwparams)
+        if not self._lookup:
+            raise pg8000.dbapi.ProgrammingError("query should return data")
+        if self.rowcount > 1:
+            raise pg8000.dbapi.ProgrammingError("at most a single result row was expected")
+        return self.fetchone()
+
+    def query_value(self, sql, **kwparams):
+        row = self.query_row(sql, **kwparams)
+        if not self.description or len(self.description) != 1:
+            raise pg8000.dbapi.ProgrammingError("a single result column was expected")
+        return row[0] if row else None
+
+    def query_column(self, sql, **kwparams):
+        self.execute(sql, kwparams)
+        if not self._lookup:
+            raise pg8000.dbapi.ProgrammingError("query should return data")
+        if not self.description or len(self.description) != 1:
+            raise pg8000.dbapi.ProgrammingError("a single result column was expected")
+        return [row[0] for row in self]
+
+    def __str__(self):
+        return f"<FriendlyCursor rowcount={self.rowcount} columns={list(self._create_lookup_dict())}>"
 
 
 def connect(dirname="data/postgresqlite", mode='friendly', config=None) -> FriendlyConnection:
