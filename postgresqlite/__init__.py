@@ -381,7 +381,7 @@ class Config:
             return f"{self.socket_dir}/.s.PGSQL.{self.port}"
 
     def get_uri(config, driver=None):
-        return f"postgresql{'+'+driver if driver else ''}://{config.user}:{config.password}@localhost:{config.port}/{config.database}"
+        return f"postgresql{'+'+driver if driver else ''}://{config.user}:{config.password}@{config.host}:{config.port}/{config.database}"
 
     def get_env(self):
         env = dict(
